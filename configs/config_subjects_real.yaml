@@ -1,0 +1,67 @@
+experiment:
+  output_root: "path_to_output_dir"
+  seed: 42
+
+data:
+# --- DATASET LIST ---
+data:
+  subjects:
+
+    - name: "sub-CC00908XX17_ses-5131"
+      enabled: True
+      input_stacks: 
+        - path_to_input_stack1
+        - path_to_input_stack2
+        - path_to_input_stack3
+        - path_to_input_stack4
+        - path_to_input_stack5
+        - path_to_input_stack6
+      input_masks:
+        - path_to_input_mask1
+        - path_to_input_mask2
+        - path_to_input_mask3
+        - path_to_input_mask4
+        - path_to_input_mask5
+        - path_to_input_mask6
+
+
+reconstruction:
+  spacing: [0.5, 0.5, 0.5]
+  psf_scale_factor: 1.0
+  slice_thickness: [2.2, 2.2, 2.2, 2.2, 2.2, 2.2] # Can be a list [3.0, 3.0, ...] if thicknesses differ
+
+
+  num_gaussians: 50000
+  init_type: "content_adaptive" # 'content_adaptive' or 'random'
+  init_lambda: 0.0 # 0.0 = only edges, 1.0 = uniform. 0.2 avoids holes in flat tissue.
+
+flags:
+  use_motion_correction: True
+  use_slice_scaling: True
+  use_slice_uncertainty: True # Enables Aleatoric Loss
+  use_psf: True
+
+training:
+  max_epochs: 500
+  batch_size: 10000000 # All points per batch (pseudobatch), actual batching not implemented yet
+  neighbors: 50
+  top_k_every: 50
+  
+  learning_rates:
+    position: 2.5e-2
+    scaling: 2.5e-2
+    rotation: 1.0e-2
+    color: 1.0e-2
+    motion_rot: 2.5e-3
+    motion_trans: 1.0e-1
+    slice_scale: 1.0e-3
+    slice_weight: 1.0e-3
+
+  loss_weights:
+    lambda_l2_scale: 0.0025 #1 #0.0025
+    log_scale_target: 0.5
+
+preprocessing:
+  bias_field_correction: False
+  denoise: False
+  dilate_mask_sigma: 0.5
