@@ -150,26 +150,26 @@ All parameters live in a single YAML file passed via `--config`.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `motion_correction` | `True` | Learn per-slice rigid correction (rotation + translation). Disable only if stacks are already perfectly aligned. |
-| `slice_scaling` | `True` | Learnable per-slice intensity scale (B1 field, excitation profile). |
-| `slice_weighting` | `False` | Residual-based per-slice Welsch outlier down-weighting (non-learnable, recomputed from residuals). |
+| `slice_scaling` | `True` / `False` | Learnable per-slice intensity scale (B1 field, excitation profile). Enabled for real data; disabled for simulated data. |
+| `slice_weighting` | `True` / `False` | Residual-based per-slice Welsch outlier down-weighting (non-learnable, recomputed from residuals). Enabled for real data; disabled for simulated data. |
 | `psf` | `True` | Analytically convolve Gaussian covariances with the slice PSF. Should almost always be `True`. |
 | `max_epochs` | `500` | Total training epochs. |
 | `lambda_mc_rot` | `0.01` | Quaternion-imaginary-part penalty for the motion-correction rotation. |
-| `lambda_mc_trans` | `1e-4` | L2 penalty on per-slice translations (mm²). |
-| `lr_eta_min_factor` | `0.1` | Cosine-annealing floor as a fraction of the initial LR. |
-| `mini_batch_size` | `null` | Voxels per mini-batch. `null` = full-batch (fastest if VRAM allows). Set e.g. `500000` if you hit OOM errors. |
+| `lambda_mc_trans` | `2e-4` | L2 penalty on per-slice translations (mm²). |
+| `lr_eta_min_factor` | `0.1` / `0.05` | Cosine-annealing floor as a fraction of the initial LR. Real data: `0.1`; simulated data: `0.05`. |
+| `mini_batch_size` | `500000` | Voxels per mini-batch. `null` = full-batch (fastest if VRAM allows). Set lower if you hit OOM errors. |
 
 #### `gsvr.g_primitives` — Gaussian Field
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `num_gaussians` | `50000` | Number of 3D Gaussian primitives. Increase for finer detail; decrease to save memory. |
+| `num_gaussians` | `30000` | Number of 3D Gaussian primitives. Increase for finer detail; decrease to save memory. |
 | `init_type` | `"content_adaptive"` | Seed positions by gradient-magnitude-weighted sampling (concentrates primitives near tissue boundaries). |
 | `init_lambda` | `0.0` | Blend between content-adaptive (`0.0`) and uniform (`1.0`) initialisation. |
-| `scale_init` | `0.5`–`1.0` | Initial log-std for all Gaussians (log-std=0.5 → std ≈ 1.65 mm). Match roughly to expected structure scale. |
-| `scale_target` | `0.5` | One-sided **lower bound** on Gaussian log-scale. Only collapses below this value are penalised; larger Gaussians are unconstrained (so they can carry low-frequency homogeneous regions). |
-| `lambda_reg` | `0.001`–`0.005` | Weight of the scale lower-bound penalty. |
-| `K_neighbors` | `30` / `50` | Number of nearest Gaussians evaluated per query point. Higher = smoother field, slower k-NN. |
+| `scale_init` | `0.5` | Initial log-std for all Gaussians (log-std=0.5 → std ≈ 1.65 mm). Match roughly to expected structure scale. |
+| `scale_target` | `0.05` | One-sided **lower bound** on Gaussian log-scale. Only collapses below this value are penalised; larger Gaussians are unconstrained (so they can carry low-frequency homogeneous regions). |
+| `lambda_reg` | `0.05` | Weight of the scale lower-bound penalty. |
+| `K_neighbors` | `32 - 64` | Number of nearest Gaussians evaluated per query point. Higher = smoother field, slower k-NN. |
 | `topK_every` | `50` | Recompute the FAISS k-NN index every N epochs. Lower = more accurate but slower training. |
 | `K_color` | `8` | Neighbours for graph-TV on colour (Gaussian-to-Gaussian K-NN, rebuilt at the `topK_every` cadence). |
 | `lambda_color_tv` | `0.0` | Graph-TV weight: penalises L1 colour differences between each Gaussian and its `K_color` spatial neighbours. Smooths the colour field to suppress between-Gaussian intensity striping. `0` = disabled. Try `0.001`–`0.1`. |
@@ -191,7 +191,7 @@ All parameters live in a single YAML file passed via `--config`.
 | `g_primitives_rot` | `2.5e-2` | Rotation quaternions |
 | `g_primitives_color` | `2.5e-2` | Scalar intensity values |
 | `gsvr_mc_rot` | `2.5e-3` | Per-slice motion correction rotation (kept low — corrections are expected to be small) |
-| `gsvr_mc_trans` | `1.0e-1` | Per-slice motion correction translation |
+| `gsvr_mc_trans` | `5.0e-2` | Per-slice motion correction translation |
 | `gsvr_slice_scale` | `1.0e-3` | Per-slice intensity scale (only active when `slice_scaling: True`) |
 
 ---
