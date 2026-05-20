@@ -1,0 +1,107 @@
+# =============================================================================
+# GSVR Configuration — Motion-corrected slices (e.g. SVoRT output)
+#
+# Loads a directory of single-slice NIfTI files, each carrying its own affine
+# that encodes the slice's already motion-corrected world placement.
+#
+# Filename convention (configurable via `slice_glob` / `mask_prefix`):
+#     <N>.nii.gz         single slice, shape (H, W, 1)
+#     mask_<N>.nii.gz    paired brain mask
+#
+# Per-slice motion correction in GSVR remains active and refines on top of the
+# external alignment; disable via `gsvr.motion_correction: False` only if you
+# want to freeze the slice poses.
+#
+# Run: python train.py --config configs/config_subjects_svort_slices.yaml
+#
+# SETUP: Fill in the paths under `data.subject` below.
+# =============================================================================
+
+
+# --- EXPERIMENT ---
+experiment:
+  name: "gsvr_svort_slices"
+  output_root: "output"   # <-- set to your desired output directory
+  seed: 42
+
+
+# --- GSVR MODEL ---
+gsvr:
+  motion_correction: True     # Refines per-slice rigid pose on top of SVoRT alignment
+  slice_scaling: True         # Learnable per-slice intensity scale
+  slice_weighting: True       # Residual-based per-slice outlier down-weighting (Welsch)
+  psf: True
+  max_epochs: 500
+  lambda_mc_rot: 0.01
+  lambda_mc_trans: 0.0002
+  lr_eta_min_factor: 0.1
+  mini_batch_size: 500000
+
+  g_primitives:
+    num_gaussians: 30000
+    init_type: "content_adaptive"
+    init_lambda: 0.0
+    lambda_reg: 0.05
+    scale_target: 0.05
+    scale_init: 0.5
+    topK_every: 50
+    K_neighbors: 32
+    K_color: 8
+    lambda_color_tv: 0.0
+
+  coarse_to_fine:
+    enabled: False
+    growth_schedule:
+      - [0, 5000]
+      - [100, 10000]
+      - [200, 20000]
+      - [300, 30000]
+      - [400, 50000]
+    scale_target_alpha: 0.5
+
+  learning_rates:
+    g_primitives_mu: 2.5e-2
+    g_primitives_scale: 2.5e-2
+    g_primitives_rot: 2.5e-2
+    g_primitives_color: 2.5e-2
+    gsvr_mc_rot: 2.5e-3
+    gsvr_mc_trans: 1.0e-2
+    gsvr_slice_scale: 1.0e-3
+
+
+# --- VISUALIZATION ---
+visualization:
+  snapshots:
+    enabled: true
+    interval_seconds: 0.1
+    subdir: "snapshots"
+
+
+# --- DATA ---
+data:
+  preprocessing:
+    # SVoRT typically runs on bias-corrected stacks already; leave these off
+    # unless you know your slice files are still uncorrected.
+    bias_field_correction: False
+    denoise: False
+  reconstruction:
+    spacing: [0.5, 0.5, 0.5]
+    apply_mask: True
+    # Mask refinement (optional; defaults shown):
+    # mask_dilation_voxels: 3   # Outward growth at the boundary.
+    # mask_closing_voxels:  5   # Bridges open gaps narrower than 2*N voxels without
+    #                           # growing the boundary further.
+    # mask_vote_threshold:  2   # Minimum distinct slices contributing per recon voxel.
+  subject:
+    name: "my_subject_svort"                       # <-- set to your subject name / identifier
+
+    # Single slice_thickness scalar is broadcast to every discovered slice.
+    # Use a list of length N if individual slices have different thickness.
+    slice_thickness: 3.0                           # <-- adjust to match your acquisition
+
+    # Slices mode: point to a directory of single-slice NIfTI files. The
+    # `input_stacks` / `input_masks` keys must NOT be set in this mode.
+    slices_dir: /path/to/your/svort_aligned_slices/ # <-- replace with the SVoRT output directory
+    # Optional overrides (defaults shown — match the SVoRT convention):
+    # slice_glob: "[0-9]*.nii.gz"
+    # mask_prefix: "mask_"

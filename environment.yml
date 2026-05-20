@@ -1,0 +1,54 @@
+# GSVR conda environment
+#
+# Tested on:  Linux x86_64, CUDA 12.8, cuDNN 9.x, driver ≥ 570
+#
+# Install:
+#     conda env create -f environment.yml
+#     conda activate gsplat
+#
+# NOTE on FAISS-GPU: most brittle dependency. If conda fails to resolve
+# `faiss-gpu=1.12.0`, try:
+#   (a)  mamba env create -f environment.yml
+#   (b)  replace `faiss-gpu=1.12.0` with `conda-forge::faiss-gpu` at a
+#        matching version for your CUDA/driver combination
+#   (c)  fall back to `faiss-cpu` — training still works but the per-50-epoch
+#        k-NN rebuild is noticeably slower
+name: gsplat
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+
+  # --- PyTorch + CUDA (tight pin: CUDA ABI is shared with faiss-gpu) ---
+  - pytorch=2.7.0
+  - pytorch-cuda=12.8
+  - torchvision=0.22.1
+  - torchaudio=2.7.0
+
+  # --- FAISS GPU (tight pin: binary is CUDA-build-specific) ---
+  - faiss-gpu=1.12.0
+
+  # --- Numerics / config ---
+  - numpy>=1.26
+  - pyyaml>=6.0
+
+  - pip:
+      # ANTs preprocessing (N4 bias field correction, denoising).
+      # Tight pin: ANTsPy ABI shifts between minor releases.
+      - antspyx==0.4.2
+      # NIfTI I/O (used throughout utils.py and train.py).
+      - nibabel>=5.0
+      # Mask morphology (binary_fill_holes, label), connected components.
+      - scipy>=1.11
+      # Image processing utilities (used in utils.py).
+      - scikit-image>=0.22
+      # Visualisation (slice plots, loss curves).
+      - matplotlib>=3.8
+      # GIF generation (scripts/make_reconstruction_gif.py).
+      - imageio>=2.30
+      # image_fitting.py experiment only — not used by the GSVR pipeline.
+      - gsplat>=1.5

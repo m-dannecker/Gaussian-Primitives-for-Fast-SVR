@@ -1,0 +1,120 @@
+# =============================================================================
+# GSVR Configuration — Simulated Fetal Brain Data
+#
+# Used for experiments on data simulated from a known ground-truth volume
+# (e.g. orthogonal thick-slice stacks generated from an isotropic dHCP scan).
+# Run: python train.py --config configs/config_subjects_simulated.yaml
+#
+# SETUP: Fill in the paths under `data.subject` below.
+# =============================================================================
+
+
+# --- EXPERIMENT ---
+experiment:
+  name: "gsvr_simulated"
+  output_root: "output"   # <-- set to your desired output directory
+  seed: 42
+
+
+# --- GSVR MODEL ---
+gsvr:
+  motion_correction: True     # Learn per-slice rigid motion (rotation + translation)
+  slice_scaling: False        # Learnable per-slice intensity scale (B1 field, excitation profile)
+  slice_weighting: False      # Residual-based per-slice outlier down-weighting (Welsch)
+  psf: True                   # Apply PSF-aware forward model (analytically convolves Gaussians with slice PSF)
+  max_epochs: 500
+  lambda_mc_rot: 0.01         # Rotation regularisation weight. Penalises quaternion imaginary parts (deviation from identity). A value of 0.1 is ~11°; keep this tighter than translation.
+  lambda_mc_trans: 0.0002     # Translation regularisation weight. Translations are in mm so values are naturally larger; use a smaller weight.
+  lr_eta_min_factor: 0.05     # Cosine annealing decays LR to this fraction of initial
+  mini_batch_size: 500000     # null = full-batch (default). Set e.g. 500000 to split N voxels into chunks for OOM-prone large datasets.
+
+  g_primitives:
+    num_gaussians: 30000      # Number of 3D anisotropic Gaussian primitives
+    init_type: "content_adaptive"  # Seed Gaussian means by gradient-magnitude-weighted sampling (Image-GS Eq. 6)
+    init_lambda: 0.0          # Blend weight for uniform vs. content-adaptive init (0 = fully content-adaptive)
+    lambda_reg: 0.05          # Weight of the one-sided scale lower-bound penalty (only scales below scale_target are penalised).
+    scale_target: 0.05        # Lower bound on Gaussian log-scale (≈ exp(0.5)=1.65 mm). Larger Gaussians are unconstrained
+                              # so they can carry low-frequency / homogeneous regions; only collapse below this is penalised.
+    scale_init: 0.5           # Base initial log-std for Gaussian scales (std ≈ exp(scale_init) mm).
+                              # With coarse_to_fine enabled this is the base value; the actual initial
+                              # scale of active Gaussians is inflated by the same formula as scale_target:
+                              # scale_init_eff = scale_init + scale_target_alpha * ln(num_gaussians / num_active_initial)
+                              # so Gaussians start at their natural size for the coarse phase.
+    topK_every: 50            # Recompute k-NN index every N epochs (balances accuracy vs. cost)
+    K_neighbors: 64           # Number of nearest Gaussian primitives evaluated per query point
+    K_color: 8                # Neighbours for graph-TV on colour (Gaussian-to-Gaussian K-NN)
+    lambda_color_tv: 0.00     # Graph-TV weight on colour differences across K_color-NN. 0 = disabled.
+
+  coarse_to_fine:
+    enabled: False              # Progressive Gaussian activation: start coarse, split to refine
+    growth_schedule:            # (epoch, num_active) pairs — sorted by epoch, last = num_gaussians
+      - [0, 10000]
+      - [100, 20000]
+      - [200, 30000]
+    scale_target_alpha: 0.5     # Inflates scale_target when fewer Gaussians are active
+
+  learning_rates:
+    g_primitives_mu: 2.5e-2       # Gaussian mean positions
+    g_primitives_scale: 2.5e-2    # Log-scale parameters
+    g_primitives_rot: 2.5e-2      # Rotation quaternions
+    g_primitives_color: 2.5e-2    # Scalar intensity values
+    gsvr_mc_rot: 2.5e-3           # Per-slice motion correction: rotation (lower LR — small corrections expected)
+    gsvr_mc_trans: 5.0e-2         # Per-slice motion correction: translation
+    gsvr_slice_scale: 1.0e-3      # Per-slice intensity scale (slice_scaling only; outlier weights are non-learnable)
+
+
+# --- VISUALIZATION ---
+visualization:
+  snapshots:
+    enabled: false           # Opt-in: when true, save intermediate reconstructions during training
+    interval_seconds: 0.1    # Wall-clock seconds between snapshots
+    subdir: "snapshots"      # Snapshots are written under <output_root>/<subdir>/
+
+
+# --- DATA ---
+data:
+  preprocessing:
+    bias_field_correction: False  # ANTs N4 bias field correction (slow; usually not needed for simulated data)
+    denoise: False                # ANTs denoising (slow; usually not needed for simulated data)
+  reconstruction:
+    spacing: [0.7, 0.7, 0.7]     # Output reconstruction voxel spacing in mm (x, y, z)
+    apply_mask: True             # Multiply rendered volume by motion-corrected brain mask
+                                 # (majority-vote + close-gaps + fill-holes + central CC).
+                                 # Set False to inspect the raw Gaussian field outside the mask.
+    # Mask refinement (optional; defaults shown):
+    # mask_dilation_voxels: 3    # Outward growth at the boundary.
+    # mask_closing_voxels:  5    # Bridges open gaps narrower than 2*N voxels without
+    #                            # growing the boundary further.
+    # mask_vote_threshold:  2    # Minimum distinct slices contributing per recon voxel.
+  subject:
+    name: "my_simulated_subject"               # <-- set to your subject name / identifier
+    # Slice thickness per stack in mm. Scalar or list (one per stack).
+    # Through-plane PSF sigma is derived from this value.
+    slice_thickness: [3.0, 3.0, 3.0]           # <-- adjust to match simulated acquisition
+    # Low-resolution input stacks (e.g. axial, coronal, sagittal).
+    # Must match order of input_masks and slice_thickness.
+    input_stacks:
+      - /path/to/your/simulated/LR_axial.nii.gz    # <-- replace with your actual file paths
+      - /path/to/your/simulated/LR_coronal.nii.gz
+      - /path/to/your/simulated/LR_sagittal.nii.gz
+    input_masks:
+      - /path/to/your/simulated/LR_axial_mask.nii.gz    # <-- brain masks (one per stack); set to [] to skip
+      - /path/to/your/simulated/LR_coronal_mask.nii.gz
+      - /path/to/your/simulated/LR_sagittal_mask.nii.gz
+
+
+# --- ALTERNATIVE SUBJECT (single-stack sanity check on HR volume) ---
+# Uncomment to overfit directly to the HR ground-truth volume as a quick correctness test.
+# Make sure to disable motion_correction above for this single-stack scenario.
+# data:
+#   preprocessing:
+#     bias_field_correction: False
+#     denoise: False
+#   reconstruction:
+#     spacing: [0.5, 0.5, 0.5]
+#   subject:
+#     name: "sanity_check"
+#     slice_thickness: [0.5]
+#     input_stacks:
+#       - /path/to/your/hr_ground_truth.nii.gz    # <-- isotropic HR ground-truth volume
+#     input_masks: []
