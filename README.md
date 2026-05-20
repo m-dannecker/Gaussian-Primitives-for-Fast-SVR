@@ -70,7 +70,7 @@ conda activate gsplat
 
 This installs Python 3.12, PyTorch 2.7.0 (CUDA 12.8), FAISS-GPU 1.12.0, ANTsPy 0.4.2, and all other dependencies.
 
-> **Requirements:** CUDA 12.8, cuDNN 9.x, driver ≥ 570. A GPU with ≥16 GB VRAM is recommended for full-batch training on typical fetal brain datasets (50 000 Gaussians, 3 orthogonal stacks).
+> **Requirements:** CUDA 12.8, cuDNN 9.x, driver ≥ 570.
 
 > **FAISS-GPU install troubles?** This is the most brittle dependency. If conda can't resolve `faiss-gpu=1.12.0` from the `pytorch` channel for your CUDA / driver combination, try (a) installing with `mamba env create -f environment.yml`, (b) swapping to `conda-forge::faiss-gpu` at a matching version, or (c) falling back to `faiss-cpu` — training still works but the per-50-epoch k-NN rebuild is slower.
 
@@ -87,7 +87,7 @@ cd GS_SVR
 python train.py --config configs/config_subjects_simulated.yaml
 ```
 
-Training typically runs for 500 epochs (roughly 50–100 seconds depending on dataset size and GPU). The final reconstruction is saved as a NIfTI file under `output/`.
+Training typically runs for 500 epochs (roughly 20–100 seconds depending on dataset size and GPU). The final reconstruction is saved as a NIfTI file under `output/`.
 
 ### Real data
 
@@ -98,7 +98,7 @@ python train.py --config configs/config_subjects_real.yaml
 
 ### Sanity check — overfit to HR volume directly
 
-Both config files contain a commented-out block at the bottom that sets a single high-resolution stack as input with `slice_thickness: [0.5]`. Uncomment it to quickly verify the model can perfectly reconstruct a known volume before running on real data. Make sure to turn-off motion correction for this single stack scenario!
+Both config files contain a commented-out block at the bottom that sets a single high-resolution stack as input with `slice_thickness: [res_z]`. Uncomment it to quickly verify the model can perfectly reconstruct a known volume before running on real data. Make sure to turn-off motion correction for this single stack scenario!
 
 ---
 
@@ -119,13 +119,13 @@ Each stack's third axis is the slice axis; the per-slice rigid motion correction
 
 | Field | Format | Notes |
 |-------|--------|-------|
-| `subject.slices_dir`   | directory | One single-slice `.nii.gz` per file; each carries its own (already motion-corrected) affine |
-| `subject.slice_glob`   | glob | Default `[0-9]*.nii.gz` — matches SVoRT-style numeric filenames |
+| `subject.slices_dir`   | directory | One single-slice per `.nii.gz` file; each carries its own (already motion-corrected) affine |
+| `subject.slice_glob`   | glob | Default `[0-9]*.nii.gz` — matches [SVoRT](https://github.com/daviddmc/SVoRT)-style numeric filenames |
 | `subject.mask_prefix`  | string | Default `mask_` — for each slice `<N>.nii.gz`, the loader looks for `<mask_prefix><N>.nii.gz` alongside it |
 
-Use this mode to consume the per-slice output of tools like SVoRT. Per-slice motion correction in GSVR remains active and refines on top of the external alignment. See [GS_SVR/configs/config_subjects_svort_slices.yaml](configs/config_subjects_svort_slices.yaml) for a worked example.
+Use this mode to consume the per-slice output of tools like SVoRT. Per-slice motion correction in GSVR remains active and refines on top of the external alignment. See [GS_SVR/configs/config_subjects_svort_slices.yaml](configs/config_subjects_svort_slices.yaml) for example.
 
-All files must share a common world coordinate system (same or compatible affines). For stacks mode on real data with significant fetal motion, pre-register the stacks externally so they are roughly aligned before GSVR refines the per-slice motions.
+All files must share a common world coordinate system (same or compatible affines). For reconstructions that fail due to heavily motion corrupted or misaligned stacks, pre-register the stacks (and slices) externally (e.g., via [SVoRT](https://github.com/daviddmc/SVoRT)) so they are roughly aligned before GSVR refines the per-slice motions.
 
 **Output:** a single `.nii.gz` reconstruction at the spacing specified by `data.reconstruction.spacing`.
 
@@ -172,7 +172,7 @@ All parameters live in a single YAML file passed via `--config`.
 | `K_neighbors` | `32 - 64` | Number of nearest Gaussians evaluated per query point. Higher = smoother field, slower k-NN. |
 | `topK_every` | `50` | Recompute the FAISS k-NN index every N epochs. Lower = more accurate but slower training. |
 | `K_color` | `8` | Neighbours for graph-TV on colour (Gaussian-to-Gaussian K-NN, rebuilt at the `topK_every` cadence). |
-| `lambda_color_tv` | `0.0` | Graph-TV weight: penalises L1 colour differences between each Gaussian and its `K_color` spatial neighbours. Smooths the colour field to suppress between-Gaussian intensity striping. `0` = disabled. Try `0.001`–`0.1`. |
+| `lambda_color_tv` | `0.0` | Graph-TV weight: penalises L1 colour differences between each Gaussian and its `K_color` spatial neighbours. Smooths the colour field to suppress between-Gaussian intensity striping. `0` = disabled. Try `0.001`–`0.1` if needed. |
 
 #### `gsvr.coarse_to_fine` — Progressive Activation (optional)
 
@@ -244,14 +244,15 @@ Set `mini_batch_size: 500000` (or lower) to process voxels in chunks.
 - Ensure `psf: True` and that `slice_thickness` accurately reflects your acquisition. An incorrect PSF causes systematic blurring or ringing.
 - Try smaller weights for `lambda_color_tv` and `lambda_reg`and/or a smaller `scale_target`. 
 - Check that `K_neighbors` is large enough (30–50 is typical).
+- Train for more epochs 
 
 **Between-slice intensity striping**
 - Set `lambda_color_tv` to a moderate value (e.g. `0.01`–`0.1`) to enforce smoothness across neighbouring Gaussian colours.
+- Increase `scale_target`. If not enough, increase `lambda_reg`.
 - Try a larger value for `scale_init`.
 
 **Motion correction diverges or produces artefacts**
 - The motion correction LR (`gsvr_mc_rot: 2.5e-3`) is intentionally low. If stacks have large motion (>5 mm), pre-register them externally first.
-- Set `motion_correction: False` for simulated or already-aligned data to avoid wasting capacity on motion parameters.
 
 **Training is very slow**
 - Ensure the model is running on GPU.
@@ -259,7 +260,7 @@ Set `mini_batch_size: 500000` (or lower) to process voxels in chunks.
 - If you use FAISS-CPU, this will be the most significant bottleneck. Try setting `topK_every: 100` to reduce FAISS index rebuild frequency.
 
 **Gaussian primitives collapse**
-- Increase `lambda_reg` (e.g. to `0.01`) to enforce the scale lower bound more aggressively.
+- Increase `lambda_reg` (e.g. to `0.1`) to enforce the scale lower bound more aggressively.
 - Check that `scale_init` is consistent and appropriate for your voxel spacing.
 
 **Boundary holes or jagged edges in the reconstruction**
